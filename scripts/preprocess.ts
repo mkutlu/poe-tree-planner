@@ -1,11 +1,14 @@
 /**
- * Build-time preprocessing of GGG's official tree exports.
+ * Build-time preprocessing of GGG's official tree exports — league-aware.
  *
- * Reads data/raw/{skilltree,atlastree}-export-3.29.0/ and writes:
- *   public/data/passive.json, public/data/atlas.json
- *   public/assets/passive/*, public/assets/atlas/*  (copied spritesheets)
+ * Scans data/raw/ for skilltree-export-<ver> / atlastree-export-<ver> pairs
+ * and writes, per league version:
+ *   public/data/<ver>/passive.json, public/data/<ver>/atlas.json
+ *   public/assets/<ver>/passive/*, public/assets/<ver>/atlas/*
+ * plus a manifest public/data/leagues.json { versions: [...], latest }.
  *
- * When a new league drops: replace the export dirs, bump VERSION, re-run.
+ * When a new league drops: drop the new export dirs into data/raw/ and re-run.
+ * Older leagues stay available in the league selector.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -20,7 +23,6 @@ import type {
   TreeNode,
 } from '../src/logic/types';
 
-const VERSION = '3.29.0';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const RAW = path.join(ROOT, 'data', 'raw');
 
@@ -91,7 +93,7 @@ function nodeAngle(orbit: number, orbitIndex: number, skillsPerOrbit: number[]):
   return (2 * Math.PI * orbitIndex) / count;
 }
 
-function processTree(kind: TreeKind, exportDir: string, dataFile: string): TreeData {
+function processTree(kind: TreeKind, version: string, exportDir: string, dataFile: string): TreeData {
   const raw: RawData = JSON.parse(fs.readFileSync(path.join(RAW, exportDir, dataFile), 'utf8'));
   const { skillsPerOrbit, orbitRadii } = raw.constants;
 
@@ -254,7 +256,7 @@ function processTree(kind: TreeKind, exportDir: string, dataFile: string): TreeD
   }
 
   return {
-    version: VERSION,
+    version,
     kind,
     bounds: { minX: raw.min_x, minY: raw.min_y, maxX: raw.max_x, maxY: raw.max_y },
     points: { total: raw.points.totalPoints, ascendancy: raw.points.ascendancyPoints ?? 0 },
@@ -269,34 +271,56 @@ function processTree(kind: TreeKind, exportDir: string, dataFile: string): TreeD
   };
 }
 
-function copyAssets(exportDir: string, kind: TreeKind): void {
+function copyAssets(version: string, exportDir: string, kind: TreeKind): void {
   const src = path.join(RAW, exportDir, 'assets');
-  const dst = path.join(ROOT, 'public', 'assets', kind);
+  const dst = path.join(ROOT, 'public', 'assets', version, kind);
   fs.mkdirSync(dst, { recursive: true });
   for (const f of fs.readdirSync(src)) {
     fs.copyFileSync(path.join(src, f), path.join(dst, f));
   }
 }
 
-function main(): void {
-  const outDir = path.join(ROOT, 'public', 'data');
-  fs.mkdirSync(outDir, { recursive: true });
-
-  const jobs: [TreeKind, string, string][] = [
-    ['passive', `skilltree-export-${VERSION}`, 'data.json'],
-    ['atlas', `atlastree-export-${VERSION}`, 'data.json'],
-  ];
-  for (const [kind, dir, file] of jobs) {
-    const tree = processTree(kind, dir, file);
-    const outFile = path.join(outDir, `${kind}.json`);
-    fs.writeFileSync(outFile, JSON.stringify(tree));
-    copyAssets(dir, kind);
-    const mb = (fs.statSync(outFile).size / 1024 / 1024).toFixed(2);
-    console.log(
-      `${kind}: ${Object.keys(tree.nodes).length} nodes, ${tree.edges.length} edges, ` +
-        `${tree.groups.length} bg groups, ${tree.classes.length} classes -> ${outFile} (${mb} MB)`,
-    );
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
   }
+  return 0;
+}
+
+function main(): void {
+  const versions: string[] = [];
+  for (const entry of fs.readdirSync(RAW)) {
+    const m = entry.match(/^skilltree-export-(\d+\.\d+\.\d+)$/);
+    if (m) versions.push(m[1]);
+  }
+  if (!versions.length) throw new Error('no skilltree-export-* directories found in data/raw/');
+  versions.sort(compareVersions);
+
+  for (const version of versions) {
+    const outDir = path.join(ROOT, 'public', 'data', version);
+    fs.mkdirSync(outDir, { recursive: true });
+    const jobs: [TreeKind, string][] = [['passive', `skilltree-export-${version}`]];
+    const atlasDir = `atlastree-export-${version}`;
+    if (fs.existsSync(path.join(RAW, atlasDir))) jobs.push(['atlas', atlasDir]);
+    for (const [kind, dir] of jobs) {
+      const tree = processTree(kind, version, dir, 'data.json');
+      const outFile = path.join(outDir, `${kind}.json`);
+      fs.writeFileSync(outFile, JSON.stringify(tree));
+      copyAssets(version, dir, kind);
+      const mb = (fs.statSync(outFile).size / 1024 / 1024).toFixed(2);
+      console.log(
+        `${version} ${kind}: ${Object.keys(tree.nodes).length} nodes, ${tree.edges.length} edges, ` +
+          `${tree.groups.length} bg groups, ${tree.classes.length} classes -> ${outFile} (${mb} MB)`,
+      );
+    }
+  }
+
+  const manifest = { versions, latest: versions[versions.length - 1] };
+  fs.writeFileSync(path.join(ROOT, 'public', 'data', 'leagues.json'), JSON.stringify(manifest));
+  console.log(`leagues.json: ${JSON.stringify(manifest)}`);
 }
 
 main();
