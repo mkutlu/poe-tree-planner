@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/raw/
+public/data/
+public/assets/
+*.local
+.idea/
+.DS_Store
