@@ -94,9 +94,7 @@ export function findAllocationPath(ctx: AllocContext, state: AllocState, targetI
       if (visited.has(nb)) continue;
       const nbNode = getNode(ctx.data, nb);
       if (!nbNode) continue;
-      if (nb !== targetId && !sources.has(nb) && !isTraversable(nbNode, ctx)) {
-        if (!(nb === targetId)) continue;
-      }
+      if (nb !== targetId && !sources.has(nb) && !isTraversable(nbNode, ctx)) continue;
       visited.add(nb);
       parent.set(nb, cur);
       queue.push(nb);
