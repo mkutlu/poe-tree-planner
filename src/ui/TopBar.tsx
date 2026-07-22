@@ -38,20 +38,18 @@ export function TopBar() {
         ))}
       </nav>
 
-      {versions.length > 1 && (
-        <select
-          value={version ?? ''}
-          onChange={(e) => loadLeague(e.target.value)}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
-        >
-          {versions.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-      )}
-      {versions.length === 1 && <span className="text-zinc-500">{version}</span>}
+      <select
+        value={version ?? ''}
+        onChange={(e) => loadLeague(e.target.value)}
+        title="League version"
+        className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+      >
+        {versions.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
 
       {tab === 'passive' && data && (
         <>
